@@ -84,7 +84,7 @@ function getWorkspaceRemote() {
     // https://github.com/owner/repo.git
     // git@github.com:owner/repo.git
     // https://github.com/owner/repo
-    const ghMatch = url.match(/github\.com[/:]([^/]+)\/([^/.]+)/);
+    const ghMatch = url.match(/github\.com[/:]([^/]+)\/(.+?)(?:\.git)?$/);
     if (!ghMatch) return null;
 
     return { owner: ghMatch[1], repo: ghMatch[2] };
