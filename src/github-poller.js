@@ -115,7 +115,9 @@ async function pollTrigger(trigger, token, state) {
   const { id, owner, repo, branch, watchFiles } = trigger;
   const triggerTag = trigger.triggerTag || DEFAULT_TRIGGER_TAG;
   const stateKey = `lastSha_${id}`;
-  const lastSha = trigger.lastProcessedCommitSha || state.get(stateKey);
+  // globalState takes priority — it's updated on every poll cycle and always
+  // has the latest SHA. Config file is only used as fallback on first run.
+  const lastSha = state.get(stateKey) || trigger.lastProcessedCommitSha;
 
   const commits = await getRecentCommits(owner, repo, branch, token, lastSha);
 

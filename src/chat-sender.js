@@ -33,7 +33,9 @@ AFTER COMPLETING THE TASK:
      "triggeredAt": "<current ISO timestamp>",
      "completedAt": "<current ISO timestamp>"
    }
-5. Commit and push the config update too.` : '';
+5. Commit and push the config update too.
+6. NOTIFY THE USER: Find the "Requested by" ID in the task file markdown table. Then run this exact command to send a Telegram notification:
+   ssh vds-mcp "ssh ubuntu@13.48.8.43 docker exec serve-you-agent bash /app/scripts/tg-notify.sh <CHAT_ID> '✅ Задача [ag] выполнена: ${task.commitMessage.replace(/'/g, "\\'")}'"` : '';
 
   return `\u{1F916} AUTOMATED TASK from antigravity-github-trigger
 
