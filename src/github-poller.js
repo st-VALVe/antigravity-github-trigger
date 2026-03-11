@@ -2,6 +2,12 @@ const https = require('https');
 const { matchesWatchPatterns, isConfigOnlyCommit } = require('./config');
 
 /**
+ * Auto-commit message prefix used by this extension.
+ * Commits with this prefix are skipped to prevent self-triggering loops.
+ */
+const AUTO_COMMIT_PREFIX = 'auto(';
+
+/**
  * Makes a GitHub API request.
  * @param {string} endpoint - API path (e.g., "/repos/owner/repo/commits")
  * @param {string} token - GitHub personal access token
@@ -116,6 +122,14 @@ async function pollTrigger(trigger, token, state) {
 
   // Check each new commit (oldest first for proper ordering)
   for (const commit of commits.reverse()) {
+    const commitMessage = commit.commit?.message || '';
+
+    // Skip auto-commits made by this extension (self-trigger prevention)
+    if (commitMessage.startsWith(AUTO_COMMIT_PREFIX)) {
+      console.log(`[antigravity-trigger] Skipping self-commit: ${commitMessage.substring(0, 60)}`);
+      continue;
+    }
+
     const files = await getCommitFiles(owner, repo, commit.sha, token);
 
     // Skip config-only commits (self-trigger prevention)
