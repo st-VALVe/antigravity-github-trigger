@@ -1,5 +1,5 @@
 const vscode = require('vscode');
-const { loadTriggerConfig, getGitHubToken, saveTriggerConfig } = require('./config');
+const { loadTriggerConfig, getGitHubToken, saveTriggerConfig, getWorkspaceRemote } = require('./config');
 const { pollAllTriggers } = require('./github-poller');
 const { buildPrompt, sendToChat } = require('./chat-sender');
 
@@ -172,6 +172,29 @@ async function pollOnce() {
     log('ERROR: No GitHub token found');
     updateStatusBar('error');
     return;
+  }
+
+  // Filter triggers to only those matching this workspace's git remote
+  const remote = getWorkspaceRemote();
+  if (remote) {
+    log(`Workspace remote: ${remote.owner}/${remote.repo}`);
+    const before = config.triggers.length;
+    config.triggers = config.triggers.filter(t => {
+      const match = t.owner.toLowerCase() === remote.owner.toLowerCase() &&
+                    t.repo.toLowerCase() === remote.repo.toLowerCase();
+      if (!match) {
+        log(`  Skipping trigger "${t.id}": ${t.owner}/${t.repo} != ${remote.owner}/${remote.repo}`);
+      }
+      return match;
+    });
+    if (config.triggers.length === 0 && before > 0) {
+      lastPollStatus = 'No triggers match this workspace remote';
+      log('No triggers match this workspace remote');
+      updateStatusBar('idle');
+      return;
+    }
+  } else {
+    log('Could not detect workspace git remote, polling all triggers');
   }
 
   log(`Polling ${config.triggers.length} trigger(s)...`);

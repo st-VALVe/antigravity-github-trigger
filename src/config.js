@@ -63,6 +63,37 @@ function getWorkspacePath() {
 }
 
 /**
+ * Reads the git remote origin URL and extracts owner/repo.
+ * @returns {{ owner: string, repo: string } | null}
+ */
+function getWorkspaceRemote() {
+  const wsPath = getWorkspacePath();
+  if (!wsPath) return null;
+
+  const gitConfigPath = path.join(wsPath, '.git', 'config');
+  if (!fs.existsSync(gitConfigPath)) return null;
+
+  try {
+    const raw = fs.readFileSync(gitConfigPath, 'utf-8');
+    // Match [remote "origin"] section's url line
+    const match = raw.match(/\[remote\s+"origin"\][^[]*url\s*=\s*(.+)/m);
+    if (!match) return null;
+
+    const url = match[1].trim();
+    // Parse owner/repo from various URL formats:
+    // https://github.com/owner/repo.git
+    // git@github.com:owner/repo.git
+    // https://github.com/owner/repo
+    const ghMatch = url.match(/github\.com[/:]([^/]+)\/([^/.]+)/);
+    if (!ghMatch) return null;
+
+    return { owner: ghMatch[1], repo: ghMatch[2] };
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Updates the trigger config file on disk.
  * @param {string} configPath
  * @param {object} config
@@ -99,6 +130,7 @@ module.exports = {
   loadTriggerConfig,
   getGitHubToken,
   getWorkspacePath,
+  getWorkspaceRemote,
   saveTriggerConfig,
   matchesWatchPatterns,
   isConfigOnlyCommit
