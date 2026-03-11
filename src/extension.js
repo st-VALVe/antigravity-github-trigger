@@ -215,6 +215,17 @@ async function pollOnce() {
 
     // Process triggered tasks (one at a time to avoid chat conflicts)
     for (const task of triggeredTasks) {
+      // DEDUPLICATION: Re-read config fresh (agent may have updated taskLog)
+      const freshConfig = loadTriggerConfig();
+      const freshLog = freshConfig.config?.taskLog || config.taskLog || [];
+      const alreadyProcessed = freshLog.some(
+        entry => entry.triggerCommitSha === task.commitSha
+      );
+      if (alreadyProcessed) {
+        log(`Skipping ${task.triggerId}: commit ${task.commitSha.substring(0, 7)} already in taskLog`);
+        continue;
+      }
+
       // Check cooldown
       const cooldownMinutes = config.cooldownMinutes || 10;
       const cooldownKey = `cooldown_${task.triggerId}`;
