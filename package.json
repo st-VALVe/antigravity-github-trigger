@@ -2,7 +2,7 @@
   "name": "antigravity-github-trigger",
   "displayName": "Antigravity GitHub Trigger",
   "description": "Automatically triggers Antigravity tasks when files change in GitHub repositories",
-  "version": "1.0.0",
+  "version": "1.2.0",
   "publisher": "st-valve",
   "engines": {
     "vscode": "^1.85.0"
@@ -12,6 +12,10 @@
   "main": "./src/extension.js",
   "contributes": {
     "commands": [
+      {
+        "command": "antigravity-trigger.toggle",
+        "title": "Antigravity Trigger: Toggle On/Off"
+      },
       {
         "command": "antigravity-trigger.enable",
         "title": "Antigravity Trigger: Enable"

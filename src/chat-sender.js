@@ -8,7 +8,6 @@ const vscode = require('vscode');
 function buildPrompt(task) {
   const filesStr = task.matchedFiles.map(f => `  - ${f}`).join('\n');
 
-  // Replace template variables in user-defined prompt
   let userPrompt = task.prompt || 'Review the changes and take appropriate action.';
   userPrompt = userPrompt
     .replace(/\{\{repo\}\}/g, task.repo)
@@ -36,7 +35,7 @@ AFTER COMPLETING THE TASK:
    }
 5. Commit and push the config update too.` : '';
 
-  return `🤖 AUTOMATED TASK from antigravity-github-trigger
+  return `\u{1F916} AUTOMATED TASK from antigravity-github-trigger
 
 Repository: ${task.owner}/${task.repo} (branch: ${task.branch})
 Commit: ${task.commitMessage}
@@ -51,68 +50,110 @@ ${pushInstructions}`;
 }
 
 /**
- * Sends a message to the Antigravity chat panel.
- * Uses Antigravity-native command first, then falls back to VS Code standard commands.
+ * Sends a message to the Antigravity agent panel.
  * @param {string} message - The message to send
+ * @param {function} [log] - Logger function
  * @returns {Promise<boolean>} Whether the message was sent successfully
  */
-async function sendToChat(message) {
-  // Strategy 1: Antigravity-native command (most reliable)
+async function sendToChat(message, log = () => {}) {
+
+  // Strategy 1: antigravity.sendPromptToAgentPanel (native Antigravity command)
+  log('Strategy 1: antigravity.sendPromptToAgentPanel...');
   try {
-    await vscode.commands.executeCommand('antigravity.sendTextToChat', message);
-    console.log('[antigravity-trigger] Message sent via antigravity.sendTextToChat');
+    await vscode.commands.executeCommand('antigravity.sendPromptToAgentPanel', message);
+    log('Prompt placed in agent panel, attempting auto-submit...');
+
+    await sleep(300);
+
+    // Try various ways to submit
+    const submitted = await trySubmit(log);
+    if (submitted) {
+      log('SUCCESS: prompt sent and submitted');
+    } else {
+      log('Prompt placed but auto-submit failed — user needs to press Enter');
+    }
     return true;
   } catch (err) {
-    console.warn(`[antigravity-trigger] antigravity.sendTextToChat failed: ${err.message}`);
+    log(`FAILED: ${err.message}`);
   }
 
-  // Strategy 2: Standard VS Code chat command with auto-submit
+  // Strategy 2: Open agent + send prompt
+  log('Strategy 2: antigravity.openAgent + sendPromptToAgentPanel...');
   try {
-    await vscode.commands.executeCommand('workbench.action.chat.open', {
-      query: message,
-      isPartialQuery: false
-    });
-    console.log('[antigravity-trigger] Message sent via workbench.action.chat.open');
+    await vscode.commands.executeCommand('antigravity.openAgent');
+    await sleep(500);
+    await vscode.commands.executeCommand('antigravity.sendPromptToAgentPanel', message);
+    log('SUCCESS via openAgent + sendPromptToAgentPanel');
     return true;
   } catch (err) {
-    console.warn(`[antigravity-trigger] workbench.action.chat.open failed: ${err.message}`);
+    log(`FAILED: ${err.message}`);
   }
 
-  // Strategy 3: Clipboard-based fallback
+  // Strategy 3: Focus agent panel + clipboard paste
+  log('Strategy 3: Focus panel + clipboard...');
   try {
     const originalClipboard = await vscode.env.clipboard.readText();
 
-    // Try Antigravity-specific chat open
-    try {
-      await vscode.commands.executeCommand('antigravity.openChat');
-    } catch {
-      // Fallback to generic chat open
-      await vscode.commands.executeCommand('workbench.action.chat.open');
-    }
-
+    await vscode.commands.executeCommand('antigravity.agentSidePanel.focus');
     await sleep(500);
     await vscode.env.clipboard.writeText(message);
     await vscode.commands.executeCommand('editor.action.clipboardPasteAction');
     await sleep(300);
 
-    // Try multiple submit commands
-    const submitCommands = [
-      'antigravity.chat.submit',
-      'workbench.action.chat.submit',
-      'chat.action.submit'
-    ];
-    for (const cmd of submitCommands) {
-      try {
-        await vscode.commands.executeCommand(cmd);
-        break;
-      } catch { /* try next */ }
-    }
+    // Try Enter key to submit
+    await vscode.commands.executeCommand('type', { text: '\n' });
 
     await vscode.env.clipboard.writeText(originalClipboard);
-    console.log('[antigravity-trigger] Message sent via clipboard fallback');
+    log('Clipboard fallback completed (agentSidePanel)');
     return true;
   } catch (err) {
-    console.error(`[antigravity-trigger] All chat methods failed: ${err.message}`);
+    log(`FAILED: ${err.message}`);
+  }
+
+  log('ALL STRATEGIES FAILED');
+  return false;
+}
+
+/**
+ * Tries to submit the chat input by simulating Enter key press.
+ * @param {function} log - Logger function
+ * @returns {Promise<boolean>}
+ */
+async function trySubmit(log) {
+  // Try known submit/accept commands
+  const submitCommands = [
+    'workbench.action.chat.acceptInput',
+    'workbench.action.chat.submit',
+    'antigravity.chat.submit',
+    'chat.action.submit',
+  ];
+
+  for (const cmd of submitCommands) {
+    try {
+      await vscode.commands.executeCommand(cmd);
+      log(`  Submitted via ${cmd}`);
+      return true;
+    } catch {
+      // continue to next
+    }
+  }
+
+  // Fallback: simulate Enter key via keyboard dispatch
+  try {
+    // The 'type' command types text into the focused editor/input
+    await vscode.commands.executeCommand('default:type', { text: '\n' });
+    log('  Submitted via default:type Enter');
+    return true;
+  } catch {
+    // try without default prefix
+  }
+
+  try {
+    await vscode.commands.executeCommand('type', { text: '\n' });
+    log('  Submitted via type Enter');
+    return true;
+  } catch {
+    log('  type command failed');
   }
 
   return false;

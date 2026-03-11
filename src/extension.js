@@ -7,7 +7,7 @@ const { buildPrompt, sendToChat } = require('./chat-sender');
 let pollTimer = null;
 
 /** @type {boolean} */
-let isEnabled = true;
+let isEnabled = false;
 
 /** @type {string|null} */
 let lastPollStatus = 'Not yet polled';
@@ -21,26 +21,59 @@ let extensionContext;
 /** @type {vscode.StatusBarItem} */
 let statusBarItem;
 
+/** @type {vscode.OutputChannel} */
+let outputChannel;
+
+/**
+ * Logs a message to the Output Channel (visible in Output tab).
+ * @param {string} msg
+ */
+function log(msg) {
+  const ts = new Date().toLocaleTimeString();
+  outputChannel.appendLine(`[${ts}] ${msg}`);
+}
+
 /**
  * Extension activation.
  * @param {vscode.ExtensionContext} context
  */
 function activate(context) {
   extensionContext = context;
-  console.log('[antigravity-trigger] Extension activated');
+
+  // Create output channel for visible logging
+  outputChannel = vscode.window.createOutputChannel('Antigravity Trigger');
+  context.subscriptions.push(outputChannel);
+  log('Extension activated');
 
   // Create status bar item
   statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
-  statusBarItem.command = 'antigravity-trigger.status';
-  updateStatusBar('idle');
+  statusBarItem.command = 'antigravity-trigger.toggle';
+  updateStatusBar('disabled');
   statusBarItem.show();
   context.subscriptions.push(statusBarItem);
 
   // Register commands
   context.subscriptions.push(
+    vscode.commands.registerCommand('antigravity-trigger.toggle', () => {
+      if (isEnabled) {
+        isEnabled = false;
+        stopPolling();
+        log('Disabled by user');
+        vscode.window.showInformationMessage('Antigravity GitHub Trigger: Disabled');
+        updateStatusBar('disabled');
+      } else {
+        isEnabled = true;
+        log('Enabled by user');
+        startPolling();
+        vscode.window.showInformationMessage('Antigravity GitHub Trigger: Enabled');
+        updateStatusBar('idle');
+      }
+    }),
+
     vscode.commands.registerCommand('antigravity-trigger.enable', () => {
       isEnabled = true;
       startPolling();
+      log('Enabled via command');
       vscode.window.showInformationMessage('Antigravity GitHub Trigger: Enabled');
       updateStatusBar('idle');
     }),
@@ -48,6 +81,7 @@ function activate(context) {
     vscode.commands.registerCommand('antigravity-trigger.disable', () => {
       isEnabled = false;
       stopPolling();
+      log('Disabled via command');
       vscode.window.showInformationMessage('Antigravity GitHub Trigger: Disabled');
       updateStatusBar('disabled');
     }),
@@ -57,17 +91,19 @@ function activate(context) {
         `Status: ${isEnabled ? 'Enabled' : 'Disabled'}`,
         `Last poll: ${lastPollTime ? lastPollTime.toLocaleTimeString() : 'Never'}`,
         `Result: ${lastPollStatus}`
-      ].join('\n');
+      ].join(' | ');
+      log(`Status check: ${msg}`);
       vscode.window.showInformationMessage(msg);
     }),
 
     vscode.commands.registerCommand('antigravity-trigger.triggerNow', () => {
+      log('Manual poll triggered');
       pollOnce();
     })
   );
 
-  // Start polling on activation
-  startPolling();
+  // Start disabled — click status bar or run Enable command to activate
+  log('Ready. Click status bar to enable.');
 }
 
 /**
@@ -78,14 +114,17 @@ function startPolling() {
 
   if (!isEnabled) return;
 
-  const { config } = loadTriggerConfig();
+  const { config, error } = loadTriggerConfig();
+  if (error) {
+    log(`Config error: ${error}`);
+  }
   const intervalSeconds = config?.pollIntervalSeconds || 60;
 
-  console.log(`[antigravity-trigger] Starting polling every ${intervalSeconds}s`);
+  log(`Starting polling every ${intervalSeconds}s`);
   updateStatusBar('idle');
 
   // Initial poll after a short delay
-  setTimeout(() => pollOnce(), 5000);
+  setTimeout(() => pollOnce(), 3000);
 
   // Set up recurring poll
   pollTimer = setInterval(() => pollOnce(), intervalSeconds * 1000);
@@ -98,6 +137,7 @@ function stopPolling() {
   if (pollTimer) {
     clearInterval(pollTimer);
     pollTimer = null;
+    log('Polling stopped');
   }
 }
 
@@ -107,17 +147,20 @@ function stopPolling() {
 async function pollOnce() {
   if (!isEnabled) return;
 
+  log('--- Poll cycle started ---');
+
   const { config, configPath, error: configError } = loadTriggerConfig();
   if (configError || !config) {
     lastPollStatus = configError || 'No config';
     lastPollTime = new Date();
-    // Not an error — config might simply not exist in this workspace
+    log(`Config: ${lastPollStatus}`);
     return;
   }
 
   if (!config.enabled) {
     lastPollStatus = 'Disabled in config';
     lastPollTime = new Date();
+    log('Config has enabled=false, skipping');
     updateStatusBar('disabled');
     return;
   }
@@ -126,11 +169,12 @@ async function pollOnce() {
   if (!token) {
     lastPollStatus = 'No GitHub token found in mcp_config.json';
     lastPollTime = new Date();
+    log('ERROR: No GitHub token found');
     updateStatusBar('error');
-    console.error('[antigravity-trigger] No GitHub token found');
     return;
   }
 
+  log(`Polling ${config.triggers.length} trigger(s)...`);
   updateStatusBar('polling');
 
   try {
@@ -140,7 +184,8 @@ async function pollOnce() {
     lastPollTime = new Date();
 
     if (triggeredTasks.length === 0) {
-      lastPollStatus = 'No new changes detected';
+      lastPollStatus = 'No new tagged changes detected';
+      log('No new tagged changes detected');
       updateStatusBar('idle');
       return;
     }
@@ -155,19 +200,24 @@ async function pollOnce() {
       if (lastTriggerTime) {
         const elapsed = Date.now() - lastTriggerTime;
         if (elapsed < cooldownMinutes * 60 * 1000) {
-          console.log(`[antigravity-trigger] Skipping ${task.triggerId}: cooldown active (${Math.round((cooldownMinutes * 60 * 1000 - elapsed) / 1000)}s remaining)`);
+          const remaining = Math.round((cooldownMinutes * 60 * 1000 - elapsed) / 1000);
+          log(`Skipping ${task.triggerId}: cooldown active (${remaining}s remaining)`);
           continue;
         }
       }
 
       // Build and send prompt
       const prompt = buildPrompt(task);
-      console.log(`[antigravity-trigger] Triggering task: ${task.triggerId}`);
+      log(`TRIGGERING task: ${task.triggerId}`);
+      log(`  Commit: ${task.commitMessage}`);
+      log(`  Files: ${task.matchedFiles.join(', ')}`);
       updateStatusBar('triggered');
 
-      const sent = await sendToChat(prompt);
+      const sent = await sendToChat(prompt, log);
 
       if (sent) {
+        log(`Task sent to chat successfully!`);
+
         // Update cooldown
         await state.update(cooldownKey, Date.now());
 
@@ -198,6 +248,7 @@ async function pollOnce() {
         );
       } else {
         lastPollStatus = `Failed to send task: ${task.triggerId}`;
+        log(`ERROR: Failed to send task to chat`);
         updateStatusBar('error');
       }
     }
@@ -206,8 +257,9 @@ async function pollOnce() {
   } catch (err) {
     lastPollStatus = `Error: ${err.message}`;
     lastPollTime = new Date();
+    log(`POLL ERROR: ${err.message}`);
+    log(err.stack || '');
     updateStatusBar('error');
-    console.error(`[antigravity-trigger] Poll error: ${err.message}`);
   }
 }
 
@@ -219,7 +271,7 @@ function updateStatusBar(state) {
   switch (state) {
     case 'idle':
       statusBarItem.text = '$(eye) AG Trigger';
-      statusBarItem.tooltip = 'Antigravity GitHub Trigger: Watching...';
+      statusBarItem.tooltip = 'Antigravity GitHub Trigger: Watching... (click to toggle)';
       statusBarItem.backgroundColor = undefined;
       break;
     case 'polling':
@@ -234,7 +286,7 @@ function updateStatusBar(state) {
       break;
     case 'disabled':
       statusBarItem.text = '$(circle-slash) AG Trigger Off';
-      statusBarItem.tooltip = 'Antigravity GitHub Trigger: Disabled';
+      statusBarItem.tooltip = 'Click to enable Antigravity GitHub Trigger';
       statusBarItem.backgroundColor = undefined;
       break;
     case 'error':
@@ -250,7 +302,9 @@ function updateStatusBar(state) {
  */
 function deactivate() {
   stopPolling();
-  console.log('[antigravity-trigger] Extension deactivated');
+  if (outputChannel) {
+    log('Extension deactivated');
+  }
 }
 
 module.exports = { activate, deactivate };
