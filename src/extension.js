@@ -223,6 +223,9 @@ async function pollOnce() {
       );
       if (alreadyProcessed) {
         log(`Skipping ${task.triggerId}: commit ${task.commitSha.substring(0, 7)} already in taskLog`);
+        // Advance SHA so we don't rediscover this commit next cycle
+        const stateKey = `lastSha_${task.triggerId}`;
+        await state.update(stateKey, task.commitSha);
         continue;
       }
 
@@ -255,9 +258,13 @@ async function pollOnce() {
         // Update cooldown
         await state.update(cooldownKey, Date.now());
 
-        // Add pending entry to task log
-        if (!config.taskLog) config.taskLog = [];
-        config.taskLog.push({
+        // Re-read config FRESH before modifying to avoid overwriting agent updates
+        const latestConfig = loadTriggerConfig();
+        const cfgToSave = latestConfig.config || config;
+
+        // Add triggered entry to task log
+        if (!cfgToSave.taskLog) cfgToSave.taskLog = [];
+        cfgToSave.taskLog.push({
           triggerId: task.triggerId,
           status: 'triggered',
           triggerCommitSha: task.commitSha,
@@ -267,12 +274,12 @@ async function pollOnce() {
         });
 
         // Update lastProcessedCommitSha on the trigger
-        const trigger = config.triggers.find(t => t.id === task.triggerId);
+        const trigger = cfgToSave.triggers.find(t => t.id === task.triggerId);
         if (trigger) {
           trigger.lastProcessedCommitSha = task.commitSha;
         }
 
-        saveTriggerConfig(configPath, config);
+        saveTriggerConfig(configPath, cfgToSave);
 
         lastPollStatus = `Triggered: ${task.triggerId} (${task.matchedFiles.length} files)`;
 
