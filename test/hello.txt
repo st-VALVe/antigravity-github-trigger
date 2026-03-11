@@ -1,2 +1,2 @@
-Test v6 - fresh after reload.
-Timestamp: 2026-03-11T14:02:30Z
+Test v7 - sendPromptToAgentPanel.
+Timestamp: 2026-03-11T14:07:00Z
