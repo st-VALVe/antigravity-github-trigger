@@ -219,7 +219,8 @@ async function pollOnce() {
       const freshConfig = loadTriggerConfig();
       const freshLog = freshConfig.config?.taskLog || config.taskLog || [];
       const alreadyProcessed = freshLog.some(
-        entry => entry.triggerCommitSha === task.commitSha
+        entry => entry.triggerCommitSha.startsWith(task.commitSha.substring(0, 7)) ||
+                 task.commitSha.startsWith(entry.triggerCommitSha.substring(0, 7))
       );
       if (alreadyProcessed) {
         log(`Skipping ${task.triggerId}: commit ${task.commitSha.substring(0, 7)} already in taskLog`);
