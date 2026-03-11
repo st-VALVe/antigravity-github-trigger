@@ -2,10 +2,10 @@ const https = require('https');
 const { matchesWatchPatterns, isConfigOnlyCommit } = require('./config');
 
 /**
- * Auto-commit message prefix used by this extension.
- * Commits with this prefix are skipped to prevent self-triggering loops.
+ * Default trigger tag. Only commits containing this tag in their message
+ * will activate the trigger. All other commits are silently ignored.
  */
-const AUTO_COMMIT_PREFIX = 'auto(';
+const DEFAULT_TRIGGER_TAG = '[ag]';
 
 /**
  * Makes a GitHub API request.
@@ -103,7 +103,9 @@ async function getRecentCommits(owner, repo, branch, token, sinceSha) {
 }
 
 /**
- * Polls a single trigger for new commits that affect watched files.
+ * Polls a single trigger for new commits that contain the trigger tag.
+ * WHITELIST approach: only commits with the tag fire the trigger.
+ * All other commits are silently ignored (but advance the SHA pointer).
  * @param {object} trigger - Trigger config object
  * @param {string} token - GitHub token
  * @param {object} state - Extension global state for tracking last SHA
@@ -111,6 +113,7 @@ async function getRecentCommits(owner, repo, branch, token, sinceSha) {
  */
 async function pollTrigger(trigger, token, state) {
   const { id, owner, repo, branch, watchFiles } = trigger;
+  const triggerTag = trigger.triggerTag || DEFAULT_TRIGGER_TAG;
   const stateKey = `lastSha_${id}`;
   const lastSha = trigger.lastProcessedCommitSha || state.get(stateKey);
 
@@ -124,44 +127,52 @@ async function pollTrigger(trigger, token, state) {
   for (const commit of commits.reverse()) {
     const commitMessage = commit.commit?.message || '';
 
-    // Skip auto-commits made by this extension (self-trigger prevention)
-    if (commitMessage.startsWith(AUTO_COMMIT_PREFIX)) {
-      console.log(`[antigravity-trigger] Skipping self-commit: ${commitMessage.substring(0, 60)}`);
-      continue;
-    }
-
-    const files = await getCommitFiles(owner, repo, commit.sha, token);
-
-    // Skip config-only commits (self-trigger prevention)
-    if (isConfigOnlyCommit(files)) {
-      continue;
-    }
-
-    // Check if any changed files match watch patterns
-    const matchedFiles = files.filter(f => matchesWatchPatterns(f, watchFiles));
-
-    if (matchedFiles.length > 0) {
-      // Update last processed SHA
+    // WHITELIST: only process commits that contain the trigger tag
+    if (!commitMessage.includes(triggerTag)) {
+      // Advance SHA so we don't re-check this commit
       await state.update(stateKey, commit.sha);
-
-      return {
-        triggerId: id,
-        owner,
-        repo,
-        branch,
-        commitSha: commit.sha,
-        commitMessage: commit.commit?.message || 'No message',
-        commitUrl: commit.html_url || `https://github.com/${owner}/${repo}/commit/${commit.sha}`,
-        author: commit.commit?.author?.name || 'Unknown',
-        matchedFiles,
-        allChangedFiles: files,
-        prompt: trigger.prompt,
-        autoPush: trigger.autoPush !== false
-      };
+      continue;
     }
+
+    console.log(`[antigravity-trigger] Tag "${triggerTag}" found in: ${commitMessage.substring(0, 80)}`);
+
+    // Optional: also check watchFiles if configured
+    let matchedFiles = [];
+    if (watchFiles && watchFiles.length > 0) {
+      const files = await getCommitFiles(owner, repo, commit.sha, token);
+      matchedFiles = files.filter(f => matchesWatchPatterns(f, watchFiles));
+
+      if (matchedFiles.length === 0) {
+        console.log(`[antigravity-trigger] Tag found but no files matched watchFiles patterns`);
+        await state.update(stateKey, commit.sha);
+        continue;
+      }
+    } else {
+      // No watchFiles filter — all files in the commit are considered matched
+      const files = await getCommitFiles(owner, repo, commit.sha, token);
+      matchedFiles = files;
+    }
+
+    // Update last processed SHA
+    await state.update(stateKey, commit.sha);
+
+    return {
+      triggerId: id,
+      owner,
+      repo,
+      branch,
+      commitSha: commit.sha,
+      commitMessage,
+      commitUrl: commit.html_url || `https://github.com/${owner}/${repo}/commit/${commit.sha}`,
+      author: commit.commit?.author?.name || 'Unknown',
+      matchedFiles,
+      allChangedFiles: matchedFiles,
+      prompt: trigger.prompt,
+      autoPush: trigger.autoPush !== false
+    };
   }
 
-  // No matching changes, but update SHA to latest to avoid re-checking
+  // No tagged commits found, but update SHA to latest
   if (commits.length > 0) {
     const latestSha = commits[commits.length - 1].sha;
     await state.update(stateKey, latestSha);
