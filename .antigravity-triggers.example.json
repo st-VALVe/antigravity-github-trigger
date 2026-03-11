@@ -1,0 +1,18 @@
+{
+  "enabled": true,
+  "pollIntervalSeconds": 60,
+  "cooldownMinutes": 10,
+  "triggers": [
+    {
+      "id": "example-config-watcher",
+      "owner": "st-VALVe",
+      "repo": "serve-you-backend",
+      "branch": "main",
+      "watchFiles": ["src/config/**"],
+      "prompt": "Files changed in {{repo}} (branch {{branch}}): {{files}}.\nCommit: {{commitMessage}} by {{author}}.\nPlease review the changes and update related tests if needed.",
+      "autoPush": true,
+      "lastProcessedCommitSha": null
+    }
+  ],
+  "taskLog": []
+}
