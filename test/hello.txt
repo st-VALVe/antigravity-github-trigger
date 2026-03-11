@@ -1,2 +1,2 @@
-Test v5 - debug chat commands.
-Timestamp: 2026-03-11T14:00:00Z
+Test v6 - fresh after reload.
+Timestamp: 2026-03-11T14:02:30Z
