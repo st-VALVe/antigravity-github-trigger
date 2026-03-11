@@ -1,2 +1,2 @@
-Test file v4 - with output channel logging.
-Timestamp: 2026-03-11T13:56:00Z
+Test v5 - debug chat commands.
+Timestamp: 2026-03-11T14:00:00Z
