@@ -1,4 +1,5 @@
 const vscode = require('vscode');
+const https = require('https');
 const { loadTriggerConfig, getGitHubToken, saveTriggerConfig, getWorkspaceRemote } = require('./config');
 const { pollAllTriggers } = require('./github-poller');
 const { buildPrompt, sendToChat } = require('./chat-sender');
@@ -282,6 +283,18 @@ async function pollOnce() {
 
         saveTriggerConfig(configPath, cfgToSave);
 
+        // Send "in progress" Telegram notification
+        const notifyConfig = cfgToSave.notifications?.telegram;
+        if (notifyConfig?.enabled && notifyConfig?.botToken && notifyConfig?.chatId) {
+          const taskTitle = task.commitMessage.replace(/^\[ag\]\s*task:\s*/i, '').trim();
+          sendTelegramNotification(
+            notifyConfig.botToken,
+            notifyConfig.chatId,
+            `🔄 Task in progress: ${taskTitle}`,
+            log
+          );
+        }
+
         lastPollStatus = `Triggered: ${task.triggerId} (${task.matchedFiles.length} files)`;
 
         vscode.window.showInformationMessage(
@@ -352,6 +365,45 @@ function deactivate() {
   if (outputChannel) {
     log('Extension deactivated');
   }
+}
+
+/**
+ * Send a notification via Telegram Bot API.
+ * @param {string} botToken
+ * @param {string} chatId
+ * @param {string} message
+ * @param {Function} log
+ */
+function sendTelegramNotification(botToken, chatId, message, log) {
+  const postData = JSON.stringify({ chat_id: chatId, text: message });
+  const options = {
+    hostname: 'api.telegram.org',
+    path: `/bot${botToken}/sendMessage`,
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(postData)
+    }
+  };
+
+  const req = https.request(options, (res) => {
+    let body = '';
+    res.on('data', (chunk) => body += chunk);
+    res.on('end', () => {
+      if (res.statusCode === 200) {
+        log(`Telegram notification sent: ${message}`);
+      } else {
+        log(`Telegram notification failed (${res.statusCode}): ${body}`);
+      }
+    });
+  });
+
+  req.on('error', (err) => {
+    log(`Telegram notification error: ${err.message}`);
+  });
+
+  req.write(postData);
+  req.end();
 }
 
 module.exports = { activate, deactivate };
