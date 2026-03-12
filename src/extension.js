@@ -315,26 +315,31 @@ function updateStatusBar(state) {
       statusBarItem.text = '$(eye) AG Trigger';
       statusBarItem.tooltip = 'Antigravity GitHub Trigger: Watching... (click to toggle)';
       statusBarItem.backgroundColor = undefined;
+      statusBarItem.color = '#89d185'; // light green when active
       break;
     case 'polling':
       statusBarItem.text = '$(sync~spin) AG Trigger';
       statusBarItem.tooltip = 'Polling GitHub...';
       statusBarItem.backgroundColor = undefined;
+      statusBarItem.color = '#89d185';
       break;
     case 'triggered':
       statusBarItem.text = '$(rocket) AG Triggered!';
       statusBarItem.tooltip = 'Task sent to Antigravity';
       statusBarItem.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
+      statusBarItem.color = undefined;
       break;
     case 'disabled':
       statusBarItem.text = '$(circle-slash) AG Trigger Off';
       statusBarItem.tooltip = 'Click to enable Antigravity GitHub Trigger';
       statusBarItem.backgroundColor = undefined;
+      statusBarItem.color = undefined;
       break;
     case 'error':
       statusBarItem.text = '$(error) AG Trigger';
       statusBarItem.tooltip = `Error: ${lastPollStatus}`;
       statusBarItem.backgroundColor = new vscode.ThemeColor('statusBarItem.errorBackground');
+      statusBarItem.color = undefined;
       break;
   }
 }
