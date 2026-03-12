@@ -1,8 +1,41 @@
 const vscode = require('vscode');
 const https = require('https');
+const { execFile } = require('child_process');
 const { loadTriggerConfig, getGitHubToken, saveTriggerConfig, getWorkspaceRemote } = require('./config');
 const { pollAllTriggers } = require('./github-poller');
 const { buildPrompt, sendToChat } = require('./chat-sender');
+
+/**
+ * Runs `git pull --rebase` in the workspace to sync with remote changes
+ * (e.g., commits pushed by Aider agent in GitHub Actions).
+ * @param {Function} log - Logger function
+ * @returns {Promise<void>}
+ */
+function gitPullWorkspace(log) {
+  const workspaceFolders = vscode.workspace.workspaceFolders;
+  if (!workspaceFolders || workspaceFolders.length === 0) {
+    log('git pull: no workspace folder found, skipping');
+    return Promise.resolve();
+  }
+
+  const cwd = workspaceFolders[0].uri.fsPath;
+  log(`git pull --rebase in ${cwd}`);
+
+  return new Promise((resolve) => {
+    execFile('git', ['pull', '--rebase'], { cwd, timeout: 30000 }, (err, stdout, stderr) => {
+      if (err) {
+        log(`git pull warning: ${err.message}`);
+        // Don't block task execution on pull failure
+      } else {
+        const output = (stdout || '').trim();
+        if (output && output !== 'Already up to date.') {
+          log(`git pull: ${output}`);
+        }
+      }
+      resolve();
+    });
+  });
+}
 
 /** @type {NodeJS.Timeout|null} */
 let pollTimer = null;
@@ -244,6 +277,9 @@ async function pollOnce() {
           continue;
         }
       }
+
+      // Pull latest changes before starting work (Aider or other agents may have pushed)
+      await gitPullWorkspace(log);
 
       // Build and send prompt
       const prompt = buildPrompt(task);
