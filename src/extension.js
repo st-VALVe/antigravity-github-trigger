@@ -353,15 +353,17 @@ async function pollOnce() {
         const notifyConfig = cfgToSave.notifications?.telegram;
         if (notifyConfig?.enabled && notifyConfig?.botToken) {
           const taskTitle = task.commitMessage.replace(/^\[ag\]\s*task:\s*/i, '').replace(/\s*\[reply:[^\]]+\]/, '').trim();
-          // Extract chat_id from commit message [reply:CHAT_ID] tag
-          const replyMatch = task.commitMessage.match(/\[reply:(-?\d+)\]/);
+          // Extract chat_id and optional topic_id from commit message [reply:CHAT_ID] or [reply:CHAT_ID:TOPIC_ID]
+          const replyMatch = task.commitMessage.match(/\[reply:(-?\d+)(?::(\d+))?\]/);
           const targetChatId = replyMatch ? replyMatch[1] : notifyConfig.chatId;
+          const targetThreadId = replyMatch ? replyMatch[2] : undefined;
           if (targetChatId) {
             sendTelegramNotification(
               notifyConfig.botToken,
               targetChatId,
               `🔄 Task in progress: ${taskTitle}`,
-              log
+              log,
+              targetThreadId
             );
           }
         }
@@ -444,9 +446,14 @@ function deactivate() {
  * @param {string} chatId
  * @param {string} message
  * @param {Function} log
+ * @param {string} [threadId] - Optional message_thread_id for topic-based groups
  */
-function sendTelegramNotification(botToken, chatId, message, log) {
-  const postData = JSON.stringify({ chat_id: chatId, text: message });
+function sendTelegramNotification(botToken, chatId, message, log, threadId) {
+  const payload = { chat_id: chatId, text: message };
+  if (threadId) {
+    payload.message_thread_id = parseInt(threadId, 10);
+  }
+  const postData = JSON.stringify(payload);
   const options = {
     hostname: 'api.telegram.org',
     path: `/bot${botToken}/sendMessage`,
