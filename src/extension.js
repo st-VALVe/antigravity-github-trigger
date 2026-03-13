@@ -3,7 +3,7 @@ const https = require('https');
 const { execFile } = require('child_process');
 const { loadTriggerConfig, getGitHubToken, saveTriggerConfig, getWorkspaceRemote } = require('./config');
 const { pollAllTriggers } = require('./github-poller');
-const { pollAllCodeCommitTriggers } = require('./codecommit-poller');
+const { pollAllCodeCommitTriggers, setLogger: setCCLogger } = require('./codecommit-poller');
 const { buildPrompt, sendToChat } = require('./chat-sender');
 
 /**
@@ -79,6 +79,7 @@ function activate(context) {
   outputChannel = vscode.window.createOutputChannel('Antigravity Trigger');
   context.subscriptions.push(outputChannel);
   log('Extension activated');
+  setCCLogger(log);
 
   // Create status bar item
   statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
@@ -210,26 +211,23 @@ async function pollOnce() {
   }
 
   // Filter triggers to only those matching this workspace's git remote
+  const wsFolders = vscode.workspace.workspaceFolders;
   const remote = getWorkspaceRemote();
   if (remote) {
     const remoteLabel = remote.platform === 'github'
       ? `${remote.owner}/${remote.repo}`
       : `codecommit:${remote.repo}`;
-    log(`Workspace remote: ${remoteLabel} (${remote.platform})`);
+    log(`Workspace: ${remoteLabel} (${remote.platform})`);
     const before = config.triggers.length;
     config.triggers = config.triggers.filter(t => {
       const triggerPlatform = t.platform || 'github';
-      let match = false;
       if (remote.platform === 'github' && triggerPlatform === 'github') {
-        match = (t.owner || '').toLowerCase() === (remote.owner || '').toLowerCase() &&
-                t.repo.toLowerCase() === remote.repo.toLowerCase();
+        return (t.owner || '').toLowerCase() === (remote.owner || '').toLowerCase() &&
+               t.repo.toLowerCase() === remote.repo.toLowerCase();
       } else if (remote.platform === 'codecommit' && triggerPlatform === 'codecommit') {
-        match = t.repo.toLowerCase() === remote.repo.toLowerCase();
+        return t.repo.toLowerCase() === remote.repo.toLowerCase();
       }
-      if (!match) {
-        log(`  Skipping trigger "${t.id}": platform/repo mismatch`);
-      }
-      return match;
+      return false;
     });
     if (config.triggers.length === 0 && before > 0) {
       lastPollStatus = 'No triggers match this workspace remote';
@@ -257,10 +255,16 @@ async function pollOnce() {
       ? await pollAllTriggers(githubConfig, token, state)
       : [];
 
-    // Poll CodeCommit triggers (uses SSH, no token needed)
-    const ccTasks = ccTriggers.length > 0
-      ? await pollAllCodeCommitTriggers(ccTriggers, state)
-      : [];
+    // Poll CodeCommit triggers (uses SSH + local workspace repo)
+    let ccTasks = [];
+    if (ccTriggers.length > 0) {
+      const wsPath = wsFolders ? wsFolders[0].uri.fsPath : null;
+      try {
+        ccTasks = await pollAllCodeCommitTriggers(ccTriggers, state, wsPath);
+      } catch (ccErr) {
+        log(`ERROR polling CodeCommit: ${ccErr.message}`);
+      }
+    }
 
     const triggeredTasks = [...githubTasks, ...ccTasks];
 
@@ -270,8 +274,8 @@ async function pollOnce() {
       lastPollStatus = 'No new tagged changes detected';
       log('No new tagged changes detected');
       updateStatusBar('idle');
-      return;
-    }
+       return;
+     }
 
     // Process triggered tasks (one at a time to avoid chat conflicts)
     for (const task of triggeredTasks) {

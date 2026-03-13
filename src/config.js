@@ -76,32 +76,27 @@ function getWorkspaceRemote() {
 
   try {
     const raw = fs.readFileSync(gitConfigPath, 'utf-8');
-    // Match [remote "origin"] section's url line
     const match = raw.match(/\[remote\s+"origin"\][^[]*url\s*=\s*(.+)/m);
     if (!match) return null;
 
     const url = match[1].trim();
 
-    // Try GitHub URL formats:
-    // https://github.com/owner/repo.git
-    // git@github.com:owner/repo.git
+    // GitHub: https://github.com/owner/repo.git or git@github.com:owner/repo.git
     const ghMatch = url.match(/github\.com[/:]([^/]+)\/(.+?)(?:\.git)?$/);
     if (ghMatch) {
       return { platform: 'github', owner: ghMatch[1], repo: ghMatch[2] };
     }
 
-    // Try CodeCommit SSH URL format:
-    // ssh://USER@git-codecommit.REGION.amazonaws.com/v1/repos/REPO
+    // CodeCommit SSH with user: ssh://USER@git-codecommit.REGION.amazonaws.com/v1/repos/REPO
     const ccMatch = url.match(/ssh:\/\/([^@]+)@git-codecommit\.([^.]+)\.amazonaws\.com\/v1\/repos\/(.+?)(?:\.git)?$/);
     if (ccMatch) {
       return { platform: 'codecommit', sshUser: ccMatch[1], region: ccMatch[2], repo: ccMatch[3] };
     }
 
-    // Try CodeCommit HTTPS URL format:
-    // https://git-codecommit.REGION.amazonaws.com/v1/repos/REPO
-    const ccHttpsMatch = url.match(/git-codecommit\.([^.]+)\.amazonaws\.com\/v1\/repos\/(.+?)(?:\.git)?$/);
-    if (ccHttpsMatch) {
-      return { platform: 'codecommit', region: ccHttpsMatch[1], repo: ccHttpsMatch[2] };
+    // CodeCommit generic (SSH without user or HTTPS)
+    const ccGenericMatch = url.match(/git-codecommit\.([^.]+)\.amazonaws\.com\/v1\/repos\/(.+?)(?:\.git)?$/);
+    if (ccGenericMatch) {
+      return { platform: 'codecommit', region: ccGenericMatch[1], repo: ccGenericMatch[2] };
     }
 
     return null;
