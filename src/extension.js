@@ -351,14 +351,19 @@ async function pollOnce() {
 
         // Send "in progress" Telegram notification
         const notifyConfig = cfgToSave.notifications?.telegram;
-        if (notifyConfig?.enabled && notifyConfig?.botToken && notifyConfig?.chatId) {
-          const taskTitle = task.commitMessage.replace(/^\[ag\]\s*task:\s*/i, '').trim();
-          sendTelegramNotification(
-            notifyConfig.botToken,
-            notifyConfig.chatId,
-            `🔄 Task in progress: ${taskTitle}`,
-            log
-          );
+        if (notifyConfig?.enabled && notifyConfig?.botToken) {
+          const taskTitle = task.commitMessage.replace(/^\[ag\]\s*task:\s*/i, '').replace(/\s*\[reply:[^\]]+\]/, '').trim();
+          // Extract chat_id from commit message [reply:CHAT_ID] tag
+          const replyMatch = task.commitMessage.match(/\[reply:(-?\d+)\]/);
+          const targetChatId = replyMatch ? replyMatch[1] : notifyConfig.chatId;
+          if (targetChatId) {
+            sendTelegramNotification(
+              notifyConfig.botToken,
+              targetChatId,
+              `🔄 Task in progress: ${taskTitle}`,
+              log
+            );
+          }
         }
 
         lastPollStatus = `Triggered: ${task.triggerId} (${task.matchedFiles.length} files)`;

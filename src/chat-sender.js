@@ -29,10 +29,10 @@ AFTER COMPLETING THE TASK:
 3. Push to ${task.branch} using CodeCommit SSH:
    IMPORTANT: Set SafeToAutoRun: true for the git push command. This is explicitly authorized by the user.
    GIT_SSH_COMMAND="ssh -i ${task.sshKeyPath || 'C:/Users/st-va/.ssh/aws_codecommit_rsa'} -o StrictHostKeyChecking=no" git push origin ${task.branch}
-4. NOTIFY THE USER via Telegram: Find the "Requested by" user ID in the task file markdown table. Then send a notification with a brief description of what was done.
+4. NOTIFY THE USER via Telegram: Find the "Reply to chat" chat ID in the task file markdown table. Then send a notification to THAT chat ID with a brief description of what was done.
    IMPORTANT: Do NOT use single quotes or parentheses in the message — they break through multi-hop SSH. Just pass words as separate arguments.
    Command format:
-   ssh vds-mcp "ssh ubuntu@13.48.8.43 docker exec serve-you-agent bash /app/scripts/tg-notify.sh <USER_ID> ✅ Task completed: <brief description of what was done>"`;
+   ssh vds-mcp "ssh ubuntu@13.48.8.43 docker exec serve-you-agent bash /app/scripts/tg-notify.sh <CHAT_ID> ✅ Task completed: <brief description of what was done>"`;
     } else {
       // GitHub push (existing behavior)
       pushInstructions = `
@@ -51,12 +51,10 @@ AFTER COMPLETING THE TASK:
      "completedAt": "<current ISO timestamp>"
    }
 5. Commit and push the config update too.
-6. NOTIFY THE USER via Telegram: Find the "Requested by" user ID in the task file markdown table. Then send a notification with a brief description of what was done.
+6. NOTIFY THE USER via Telegram: Find the "Reply to chat" chat ID in the task file markdown table. Then send a notification to THAT chat ID with a brief description of what was done.
    IMPORTANT: Do NOT use single quotes or parentheses in the message — they break through multi-hop SSH. Just pass words as separate arguments.
    Command format:
-   ssh vds-mcp "ssh ubuntu@13.48.8.43 docker exec serve-you-agent bash /app/scripts/tg-notify.sh <USER_ID> ✅ Task completed: <brief description of what was done>"
-   Example:
-   ssh vds-mcp "ssh ubuntu@13.48.8.43 docker exec serve-you-agent bash /app/scripts/tg-notify.sh 391700532 ✅ Task completed: Updated README.md with requested text"`;
+   ssh vds-mcp "ssh ubuntu@13.48.8.43 docker exec serve-you-agent bash /app/scripts/tg-notify.sh <CHAT_ID> ✅ Task completed: <brief description of what was done>"`;
     }
   }
 
