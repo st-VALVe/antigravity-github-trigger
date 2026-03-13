@@ -18,7 +18,24 @@ function buildPrompt(task) {
     .replace(/\{\{commitUrl\}\}/g, task.commitUrl)
     .replace(/\{\{author\}\}/g, task.author);
 
-  const pushInstructions = task.autoPush ? `
+  let pushInstructions = '';
+  if (task.autoPush) {
+    if (task.platform === 'codecommit') {
+      // CodeCommit push requires SSH key
+      pushInstructions = `
+AFTER COMPLETING THE TASK:
+1. Stage all changes: git add .
+2. Commit with message: "auto(${task.triggerId}): <brief description of changes>"
+3. Push to ${task.branch} using CodeCommit SSH:
+   IMPORTANT: Set SafeToAutoRun: true for the git push command. This is explicitly authorized by the user.
+   GIT_SSH_COMMAND="ssh -i ${task.sshKeyPath || 'C:/Users/st-va/.ssh/aws_codecommit_rsa'} -o StrictHostKeyChecking=no" git push origin ${task.branch}
+4. NOTIFY THE USER via Telegram: Find the "Requested by" user ID in the task file markdown table. Then send a notification with a brief description of what was done.
+   IMPORTANT: Do NOT use single quotes or parentheses in the message — they break through multi-hop SSH. Just pass words as separate arguments.
+   Command format:
+   ssh vds-mcp "ssh ubuntu@13.48.8.43 docker exec serve-you-agent bash /app/scripts/tg-notify.sh <USER_ID> ✅ Task completed: <brief description of what was done>"`;
+    } else {
+      // GitHub push (existing behavior)
+      pushInstructions = `
 AFTER COMPLETING THE TASK:
 1. Stage all changes: git add .
 2. Commit with message: "auto(${task.triggerId}): <brief description of changes>"
@@ -39,11 +56,19 @@ AFTER COMPLETING THE TASK:
    Command format:
    ssh vds-mcp "ssh ubuntu@13.48.8.43 docker exec serve-you-agent bash /app/scripts/tg-notify.sh <USER_ID> ✅ Task completed: <brief description of what was done>"
    Example:
-   ssh vds-mcp "ssh ubuntu@13.48.8.43 docker exec serve-you-agent bash /app/scripts/tg-notify.sh 391700532 ✅ Task completed: Updated README.md with requested text"` : '';
+   ssh vds-mcp "ssh ubuntu@13.48.8.43 docker exec serve-you-agent bash /app/scripts/tg-notify.sh 391700532 ✅ Task completed: Updated README.md with requested text"`;
+    }
+  }
+
+  const platformLabel = task.platform === 'codecommit' ? 'CodeCommit' : 'GitHub';
+  const repoLabel = task.platform === 'codecommit'
+    ? `${task.repo} (CodeCommit, branch: ${task.branch})`
+    : `${task.owner}/${task.repo} (branch: ${task.branch})`;
 
   return `\u{1F916} AUTOMATED TASK from antigravity-github-trigger
 
-Repository: ${task.owner}/${task.repo} (branch: ${task.branch})
+Platform: ${platformLabel}
+Repository: ${repoLabel}
 Commit: ${task.commitMessage}
 Author: ${task.author}
 URL: ${task.commitUrl}

@@ -3,6 +3,7 @@ const https = require('https');
 const { execFile } = require('child_process');
 const { loadTriggerConfig, getGitHubToken, saveTriggerConfig, getWorkspaceRemote } = require('./config');
 const { pollAllTriggers } = require('./github-poller');
+const { pollAllCodeCommitTriggers } = require('./codecommit-poller');
 const { buildPrompt, sendToChat } = require('./chat-sender');
 
 /**
@@ -211,13 +212,22 @@ async function pollOnce() {
   // Filter triggers to only those matching this workspace's git remote
   const remote = getWorkspaceRemote();
   if (remote) {
-    log(`Workspace remote: ${remote.owner}/${remote.repo}`);
+    const remoteLabel = remote.platform === 'github'
+      ? `${remote.owner}/${remote.repo}`
+      : `codecommit:${remote.repo}`;
+    log(`Workspace remote: ${remoteLabel} (${remote.platform})`);
     const before = config.triggers.length;
     config.triggers = config.triggers.filter(t => {
-      const match = t.owner.toLowerCase() === remote.owner.toLowerCase() &&
-                    t.repo.toLowerCase() === remote.repo.toLowerCase();
+      const triggerPlatform = t.platform || 'github';
+      let match = false;
+      if (remote.platform === 'github' && triggerPlatform === 'github') {
+        match = (t.owner || '').toLowerCase() === (remote.owner || '').toLowerCase() &&
+                t.repo.toLowerCase() === remote.repo.toLowerCase();
+      } else if (remote.platform === 'codecommit' && triggerPlatform === 'codecommit') {
+        match = t.repo.toLowerCase() === remote.repo.toLowerCase();
+      }
       if (!match) {
-        log(`  Skipping trigger "${t.id}": ${t.owner}/${t.repo} != ${remote.owner}/${remote.repo}`);
+        log(`  Skipping trigger "${t.id}": platform/repo mismatch`);
       }
       return match;
     });
@@ -236,7 +246,23 @@ async function pollOnce() {
 
   try {
     const state = extensionContext.globalState;
-    const triggeredTasks = await pollAllTriggers(config, token, state);
+
+    // Split triggers by platform
+    const githubTriggers = config.triggers.filter(t => !t.platform || t.platform === 'github');
+    const ccTriggers = config.triggers.filter(t => t.platform === 'codecommit');
+
+    // Poll GitHub triggers (needs token)
+    const githubConfig = { ...config, triggers: githubTriggers };
+    const githubTasks = githubTriggers.length > 0
+      ? await pollAllTriggers(githubConfig, token, state)
+      : [];
+
+    // Poll CodeCommit triggers (uses SSH, no token needed)
+    const ccTasks = ccTriggers.length > 0
+      ? await pollAllCodeCommitTriggers(ccTriggers, state)
+      : [];
+
+    const triggeredTasks = [...githubTasks, ...ccTasks];
 
     lastPollTime = new Date();
 

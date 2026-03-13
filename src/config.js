@@ -64,7 +64,8 @@ function getWorkspacePath() {
 
 /**
  * Reads the git remote origin URL and extracts owner/repo.
- * @returns {{ owner: string, repo: string } | null}
+ * Supports GitHub and AWS CodeCommit URLs.
+ * @returns {{ platform: string, owner?: string, repo: string, region?: string, sshUser?: string } | null}
  */
 function getWorkspaceRemote() {
   const wsPath = getWorkspacePath();
@@ -80,14 +81,30 @@ function getWorkspaceRemote() {
     if (!match) return null;
 
     const url = match[1].trim();
-    // Parse owner/repo from various URL formats:
+
+    // Try GitHub URL formats:
     // https://github.com/owner/repo.git
     // git@github.com:owner/repo.git
-    // https://github.com/owner/repo
     const ghMatch = url.match(/github\.com[/:]([^/]+)\/(.+?)(?:\.git)?$/);
-    if (!ghMatch) return null;
+    if (ghMatch) {
+      return { platform: 'github', owner: ghMatch[1], repo: ghMatch[2] };
+    }
 
-    return { owner: ghMatch[1], repo: ghMatch[2] };
+    // Try CodeCommit SSH URL format:
+    // ssh://USER@git-codecommit.REGION.amazonaws.com/v1/repos/REPO
+    const ccMatch = url.match(/ssh:\/\/([^@]+)@git-codecommit\.([^.]+)\.amazonaws\.com\/v1\/repos\/(.+?)(?:\.git)?$/);
+    if (ccMatch) {
+      return { platform: 'codecommit', sshUser: ccMatch[1], region: ccMatch[2], repo: ccMatch[3] };
+    }
+
+    // Try CodeCommit HTTPS URL format:
+    // https://git-codecommit.REGION.amazonaws.com/v1/repos/REPO
+    const ccHttpsMatch = url.match(/git-codecommit\.([^.]+)\.amazonaws\.com\/v1\/repos\/(.+?)(?:\.git)?$/);
+    if (ccHttpsMatch) {
+      return { platform: 'codecommit', region: ccHttpsMatch[1], repo: ccHttpsMatch[2] };
+    }
+
+    return null;
   } catch {
     return null;
   }
