@@ -1,8 +1,8 @@
 {
-  "name": "antigravity-github-trigger",
-  "displayName": "Antigravity GitHub Trigger",
-  "description": "Automatically triggers Antigravity tasks when files change in GitHub repositories",
-  "version": "1.3.0",
+  "name": "antigravity-dispatch",
+  "displayName": "Antigravity Dispatch",
+  "description": "Receives tasks from Serve.You Dispatch Service via WebSocket and sends them to the Antigravity agent",
+  "version": "2.0.0",
   "publisher": "st-valve",
   "engines": {
     "vscode": "^1.85.0"
@@ -13,28 +13,32 @@
   "contributes": {
     "commands": [
       {
-        "command": "antigravity-trigger.toggle",
-        "title": "Antigravity Trigger: Toggle On/Off"
+        "command": "antigravity-dispatch.toggle",
+        "title": "Antigravity Dispatch: Toggle On/Off"
       },
       {
-        "command": "antigravity-trigger.enable",
-        "title": "Antigravity Trigger: Enable"
+        "command": "antigravity-dispatch.enable",
+        "title": "Antigravity Dispatch: Enable"
       },
       {
-        "command": "antigravity-trigger.disable",
-        "title": "Antigravity Trigger: Disable"
+        "command": "antigravity-dispatch.disable",
+        "title": "Antigravity Dispatch: Disable"
       },
       {
-        "command": "antigravity-trigger.status",
-        "title": "Antigravity Trigger: Show Status"
+        "command": "antigravity-dispatch.status",
+        "title": "Antigravity Dispatch: Show Status"
       },
       {
-        "command": "antigravity-trigger.triggerNow",
-        "title": "Antigravity Trigger: Check Now"
+        "command": "antigravity-dispatch.completeTask",
+        "title": "Antigravity Dispatch: Mark Task Completed"
+      },
+      {
+        "command": "antigravity-dispatch.failTask",
+        "title": "Antigravity Dispatch: Mark Task Failed"
       }
     ]
   },
   "dependencies": {
-    "minimatch": "^9.0.3"
+    "ws": "^8.16.0"
   }
 }

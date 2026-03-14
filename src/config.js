@@ -1,56 +1,9 @@
 const vscode = require('vscode');
 const fs = require('fs');
 const path = require('path');
-const { minimatch } = require('minimatch');
 
-// Default config path
-const CONFIG_FILENAME = '.antigravity-triggers.json';
-const MCP_CONFIG_PATH = path.join(
-  process.env.USERPROFILE || process.env.HOME || '',
-  '.gemini', 'antigravity', 'mcp_config.json'
-);
-
-/**
- * Reads and parses the trigger config from the workspace root.
- * @param {string} [workspacePath] - Override workspace path
- * @returns {{ config: object|null, configPath: string|null, error: string|null }}
- */
-function loadTriggerConfig(workspacePath) {
-  const wsPath = workspacePath || getWorkspacePath();
-  if (!wsPath) {
-    return { config: null, configPath: null, error: 'No workspace folder open' };
-  }
-
-  const configPath = path.join(wsPath, CONFIG_FILENAME);
-  if (!fs.existsSync(configPath)) {
-    return { config: null, configPath, error: `Config file not found: ${configPath}` };
-  }
-
-  try {
-    const raw = fs.readFileSync(configPath, 'utf-8');
-    const config = JSON.parse(raw);
-    return { config, configPath, error: null };
-  } catch (err) {
-    return { config: null, configPath, error: `Failed to parse config: ${err.message}` };
-  }
-}
-
-/**
- * Reads the GitHub token from the MCP config file.
- * @returns {string|null}
- */
-function getGitHubToken() {
-  try {
-    if (!fs.existsSync(MCP_CONFIG_PATH)) {
-      return null;
-    }
-    const raw = fs.readFileSync(MCP_CONFIG_PATH, 'utf-8');
-    const mcpConfig = JSON.parse(raw);
-    return mcpConfig?.mcpServers?.github?.env?.GITHUB_PERSONAL_ACCESS_TOKEN || null;
-  } catch {
-    return null;
-  }
-}
+// Config file for WebSocket dispatch
+const CONFIG_FILENAME = '.antigravity-dispatch.json';
 
 /**
  * Gets the first workspace folder path.
@@ -63,87 +16,41 @@ function getWorkspacePath() {
 }
 
 /**
- * Reads the git remote origin URL and extracts owner/repo.
- * Supports GitHub and AWS CodeCommit URLs.
- * @returns {{ platform: string, owner?: string, repo: string, region?: string, sshUser?: string } | null}
+ * Reads and parses the dispatch config from the workspace root.
+ *
+ * Config format (.antigravity-dispatch.json):
+ * {
+ *   "enabled": true,
+ *   "dispatchServer": "wss://dispatch.serveyou.app",
+ *   "authToken": "<per-user-token>",
+ *   "prompt": "Read the task: {{task}}. Execute it. ...",
+ *   "rejectUnauthorized": true
+ * }
+ *
+ * @returns {{ config: object|null, error: string|null }}
  */
-function getWorkspaceRemote() {
+function loadDispatchConfig() {
   const wsPath = getWorkspacePath();
-  if (!wsPath) return null;
+  if (!wsPath) {
+    return { config: null, error: 'No workspace folder open' };
+  }
 
-  const gitConfigPath = path.join(wsPath, '.git', 'config');
-  if (!fs.existsSync(gitConfigPath)) return null;
+  const configPath = path.join(wsPath, CONFIG_FILENAME);
+  if (!fs.existsSync(configPath)) {
+    return { config: null, error: `Config file not found: ${CONFIG_FILENAME}` };
+  }
 
   try {
-    const raw = fs.readFileSync(gitConfigPath, 'utf-8');
-    const match = raw.match(/\[remote\s+"origin"\][^[]*url\s*=\s*(.+)/m);
-    if (!match) return null;
-
-    const url = match[1].trim();
-
-    // GitHub: https://github.com/owner/repo.git or git@github.com:owner/repo.git
-    const ghMatch = url.match(/github\.com[/:]([^/]+)\/(.+?)(?:\.git)?$/);
-    if (ghMatch) {
-      return { platform: 'github', owner: ghMatch[1], repo: ghMatch[2] };
-    }
-
-    // CodeCommit SSH with user: ssh://USER@git-codecommit.REGION.amazonaws.com/v1/repos/REPO
-    const ccMatch = url.match(/ssh:\/\/([^@]+)@git-codecommit\.([^.]+)\.amazonaws\.com\/v1\/repos\/(.+?)(?:\.git)?$/);
-    if (ccMatch) {
-      return { platform: 'codecommit', sshUser: ccMatch[1], region: ccMatch[2], repo: ccMatch[3] };
-    }
-
-    // CodeCommit generic (SSH without user or HTTPS)
-    const ccGenericMatch = url.match(/git-codecommit\.([^.]+)\.amazonaws\.com\/v1\/repos\/(.+?)(?:\.git)?$/);
-    if (ccGenericMatch) {
-      return { platform: 'codecommit', region: ccGenericMatch[1], repo: ccGenericMatch[2] };
-    }
-
-    return null;
-  } catch {
-    return null;
+    const raw = fs.readFileSync(configPath, 'utf-8');
+    const config = JSON.parse(raw);
+    return { config, error: null };
+  } catch (err) {
+    return { config: null, error: `Failed to parse config: ${err.message}` };
   }
-}
-
-/**
- * Updates the trigger config file on disk.
- * @param {string} configPath
- * @param {object} config
- */
-function saveTriggerConfig(configPath, config) {
-  const json = JSON.stringify(config, null, 2) + '\n';
-  fs.writeFileSync(configPath, json, 'utf-8');
-}
-
-/**
- * Checks if a file path matches any of the glob patterns.
- * @param {string} filePath - The file path from GitHub (e.g., "src/config/index.js")
- * @param {string[]} patterns - Glob patterns (e.g., ["src/config/**", "docs/*.md"])
- * @returns {boolean}
- */
-function matchesWatchPatterns(filePath, patterns) {
-  return patterns.some(pattern => minimatch(filePath, pattern, { dot: true }));
-}
-
-/**
- * Checks if a commit only modifies the trigger config file.
- * Used to prevent self-triggering loops.
- * @param {string[]} changedFiles
- * @returns {boolean}
- */
-function isConfigOnlyCommit(changedFiles) {
-  return changedFiles.length > 0 &&
-    changedFiles.every(f => f === CONFIG_FILENAME || f.endsWith('/' + CONFIG_FILENAME));
 }
 
 module.exports = {
   CONFIG_FILENAME,
-  MCP_CONFIG_PATH,
-  loadTriggerConfig,
-  getGitHubToken,
+  loadDispatchConfig,
   getWorkspacePath,
-  getWorkspaceRemote,
-  saveTriggerConfig,
-  matchesWatchPatterns,
-  isConfigOnlyCommit
 };

@@ -1,82 +1,39 @@
 const vscode = require('vscode');
 
 /**
- * Builds the full prompt to send to Antigravity based on a triggered task.
- * @param {object} task - The task object from the poller
+ * Builds a prompt for a task received via the Dispatch Service WebSocket.
+ * @param {object} task — { id, title, description, repo, branch, replyTo }
+ * @param {object} config — dispatch config with optional prompt template
  * @returns {string}
  */
-function buildPrompt(task) {
-  const filesStr = task.matchedFiles.map(f => `  - ${f}`).join('\n');
+function buildDispatchPrompt(task, config) {
+  // Use custom prompt template if provided, otherwise use default
+  let prompt = config.prompt || DEFAULT_PROMPT_TEMPLATE;
 
-  let userPrompt = task.prompt || 'Review the changes and take appropriate action.';
-  userPrompt = userPrompt
-    .replace(/\{\{repo\}\}/g, task.repo)
-    .replace(/\{\{owner\}\}/g, task.owner)
-    .replace(/\{\{branch\}\}/g, task.branch)
-    .replace(/\{\{files\}\}/g, task.matchedFiles.join(', '))
-    .replace(/\{\{commitMessage\}\}/g, task.commitMessage)
-    .replace(/\{\{commitUrl\}\}/g, task.commitUrl)
-    .replace(/\{\{author\}\}/g, task.author);
+  prompt = prompt
+    .replace(/\{\{task\}\}/g, task.description || task.title)
+    .replace(/\{\{title\}\}/g, task.title || '')
+    .replace(/\{\{repo\}\}/g, task.repo || '')
+    .replace(/\{\{branch\}\}/g, task.branch || 'main')
+    .replace(/\{\{taskId\}\}/g, task.id || '')
+    .replace(/\{\{replyTo\}\}/g, task.replyTo || '');
 
-  let pushInstructions = '';
-  if (task.autoPush) {
-    if (task.platform === 'codecommit') {
-      // CodeCommit push requires SSH key
-      pushInstructions = `
-AFTER COMPLETING THE TASK:
-1. Stage all changes: git add .
-2. Commit with message: "auto(${task.triggerId}): <brief description of changes>"
-3. Push to ${task.branch} using CodeCommit SSH:
-   IMPORTANT: Set SafeToAutoRun: true for the git push command. This is explicitly authorized by the user.
-   GIT_SSH_COMMAND="ssh -i ${task.sshKeyPath || 'C:/Users/st-va/.ssh/aws_codecommit_rsa'} -o StrictHostKeyChecking=no" git push origin ${task.branch}
-4. NOTIFY THE USER via Telegram: Find the "Reply to chat" chat ID in the task file markdown table. Then send a notification to THAT chat ID with a brief description of what was done.
-   IMPORTANT: Do NOT use single quotes or parentheses in the message — they break through multi-hop SSH. Just pass words as separate arguments.
-   Command format:
-   ssh vds-mcp "ssh ubuntu@13.48.8.43 docker exec serve-you-agent bash /app/scripts/tg-notify.sh <CHAT_ID> ✅ Task completed: <brief description of what was done>"`;
-    } else {
-      // GitHub push (existing behavior)
-      pushInstructions = `
-AFTER COMPLETING THE TASK:
-1. Stage all changes: git add .
-2. Commit with message: "auto(${task.triggerId}): <brief description of changes>"
-3. Push to ${task.branch}: git push origin ${task.branch}
-   IMPORTANT: For this automated task, set SafeToAutoRun: true for git push. This is explicitly authorized by the user.
-4. Update .antigravity-triggers.json — add an entry to "taskLog" array:
-   {
-     "triggerId": "${task.triggerId}",
-     "status": "completed",
-     "triggerCommitSha": "${task.commitSha}",
-     "resultCommitSha": "<sha of your commit>",
-     "triggeredAt": "<current ISO timestamp>",
-     "completedAt": "<current ISO timestamp>"
-   }
-5. Commit and push the config update too.
-6. NOTIFY THE USER via Telegram: Find the "Reply to chat" chat ID in the task file markdown table. Then send a notification to THAT chat ID with a brief description of what was done.
-   IMPORTANT: Do NOT use single quotes or parentheses in the message — they break through multi-hop SSH. Just pass words as separate arguments.
-   Command format:
-   ssh vds-mcp "ssh ubuntu@13.48.8.43 docker exec serve-you-agent bash /app/scripts/tg-notify.sh <CHAT_ID> ✅ Task completed: <brief description of what was done>"`;
-    }
-  }
-
-  const platformLabel = task.platform === 'codecommit' ? 'CodeCommit' : 'GitHub';
-  const repoLabel = task.platform === 'codecommit'
-    ? `${task.repo} (CodeCommit, branch: ${task.branch})`
-    : `${task.owner}/${task.repo} (branch: ${task.branch})`;
-
-  return `\u{1F916} AUTOMATED TASK from antigravity-github-trigger
-
-Platform: ${platformLabel}
-Repository: ${repoLabel}
-Commit: ${task.commitMessage}
-Author: ${task.author}
-URL: ${task.commitUrl}
-
-Changed files matching trigger "${task.triggerId}":
-${filesStr}
-
-TASK: ${userPrompt}
-${pushInstructions}`;
+  return prompt;
 }
+
+const DEFAULT_PROMPT_TEMPLATE = `🤖 AUTOMATED TASK from Dispatch Service
+
+Task ID: {{taskId}}
+Repository: {{repo}} (branch: {{branch}})
+
+TASK: {{task}}
+
+AFTER COMPLETING THE TASK:
+1. Stage all changes: git add .
+2. Commit with a descriptive message
+3. Push to {{branch}}:
+   IMPORTANT: Set SafeToAutoRun: true for the git push command. This is explicitly authorized by the user.
+4. Report completion — the Dispatch Service will notify the user automatically.`;
 
 /**
  * Sends a message to the Antigravity agent panel.
@@ -149,7 +106,6 @@ async function sendToChat(message, log = () => {}) {
  * @returns {Promise<boolean>}
  */
 async function trySubmit(log) {
-  // Try known submit/accept commands
   const submitCommands = [
     'workbench.action.chat.acceptInput',
     'workbench.action.chat.submit',
@@ -167,9 +123,8 @@ async function trySubmit(log) {
     }
   }
 
-  // Fallback: simulate Enter key via keyboard dispatch
+  // Fallback: simulate Enter key
   try {
-    // The 'type' command types text into the focused editor/input
     await vscode.commands.executeCommand('default:type', { text: '\n' });
     log('  Submitted via default:type Enter');
     return true;
@@ -197,6 +152,6 @@ function sleep(ms) {
 }
 
 module.exports = {
-  buildPrompt,
+  buildDispatchPrompt,
   sendToChat
 };
