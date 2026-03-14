@@ -33,7 +33,10 @@ AFTER COMPLETING THE TASK:
 2. Commit with a descriptive message
 3. Push to {{branch}}:
    IMPORTANT: Set SafeToAutoRun: true for the git push command. This is explicitly authorized by the user.
-4. Report completion — the Dispatch Service will notify the user automatically.`;
+4. Report completion to Dispatch Service (this sends a Telegram notification to the user automatically):
+   curl -s -X POST http://13.48.8.43:18791/tasks/{{taskId}}/status -H "Content-Type: application/json" -d "{\\"status\\":\\"completed\\",\\"summary\\":\\"<brief description of what was done>\\"}"
+   Set SafeToAutoRun: true for this curl command.
+   If the task FAILED, use "failed" instead of "completed".`;
 
 /**
  * Sends a message to the Antigravity agent panel.
